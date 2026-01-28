@@ -6,4 +6,5 @@ and many optimization norms (thanks to CVXPY).
 
 ![fir1](images/fir1.png)
 ![fir2](images/fir2.png)
+![fir3](images/fir3.png)
 

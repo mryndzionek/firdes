@@ -23,19 +23,36 @@ def linear_ramp(xs, ys, x):
     return y_prev + ((x - x_prev) * slope)
 
 
-def firdes(num_taps, bands, desired, antisymmetric=False, norm="inf", grid_density=32):
+def firdes(
+    num_taps,
+    bands,
+    desired,
+    antisymmetric=False,
+    norm="inf",
+    grid_density=32,
+    no_trans=True,
+):
     order = num_taps - 1
     even_order = order % 2 == 0
 
-    fs = []
-    D = []
-
     desired = list(map(lambda x: np.pow(10, x / 20), desired))
-    _f_resp = partial(linear_ramp, bands, desired)
     step = 0.5 / ((num_taps + 1) * grid_density)
 
-    fs = np.arange(0.0, 0.5 + step, step)
-    D = np.array([_f_resp(f) for f in fs])
+    if no_trans:
+        fs = np.empty(0)
+        D = np.empty(0)
+        for i in range(1, len(bands)):
+            if np.abs(desired[i - 1] - desired[i]) > 1e-8:
+                continue
+            nfs = np.arange(bands[i - 1], bands[i] + step, step)
+            fs = np.concatenate([fs, nfs])
+            D = np.concatenate([D, np.ones(nfs.size) * desired[i]])
+    else:
+        fs = []
+        D = []
+        _f_resp = partial(linear_ramp, bands, desired)
+        fs = np.arange(0.0, 0.5 + step, step)
+        D = np.array([_f_resp(f) for f in fs])
 
     A = []
 
@@ -72,8 +89,7 @@ def firdes(num_taps, bands, desired, antisymmetric=False, norm="inf", grid_densi
 
     vx = cvx.Variable(x_dim)
     objective = cvx.Minimize(cvx.norm(A @ vx - D, norm))
-    constraints = [vx <= 1, vx >= -1]
-    prob = cvx.Problem(objective, constraints)
+    prob = cvx.Problem(objective)
     prob.solve(verbose=False)
     taps = np.array(vx.value)
 
@@ -96,15 +112,16 @@ def firdes(num_taps, bands, desired, antisymmetric=False, norm="inf", grid_densi
 
 if __name__ == "__main__":
     NUM_TAPS = 41
-    taps, fs, mags = firdes(NUM_TAPS, [0, 0.24, 0.26, 0.5], [0, 0, -60, -60])
+    As = -80
+    taps, fs, mags = firdes(NUM_TAPS, [0, 0.24, 0.26, 0.5], [0, 0, As, As])
     plt.plot(fs, 20 * np.log10(abs(mags)), label="Desired response")
 
     w, h = sig.freqz(taps, fs=1)
-    plt.plot(w, 20 * np.log10(abs(h)), label="All-in-one design function")
+    plt.plot(w, 20 * np.log10(abs(h)), label="All-in-one design function (L-inf norm)")
 
-    taps = sig.remez(NUM_TAPS, [0, 0.24, 0.26, 0.5], [1, 10 ** (-60 / 20)], fs=1)
+    taps = sig.remez(NUM_TAPS, [0, 0.24, 0.26, 0.5], [1, 10 ** (As / 20)], fs=1)
     w, h = sig.freqz(taps, fs=1)
-    plt.plot(w, 20 * np.log10(abs(h)), label="SciPy remez")
+    plt.plot(w, 20 * np.log10(abs(h)), label="SciPy remez", linestyle="dotted")
 
     plt.tight_layout()
     plt.grid(True)
@@ -115,10 +132,11 @@ if __name__ == "__main__":
     plt.plot(fs, 20 * np.log10(abs(mags)), label="Desired response")
     for norm in [1, 2, 3, "inf"]:
         taps, fs, mags = firdes(
-            NUM_TAPS, [0, 0.24, 0.26, 0.5], [0, 0, -60, -60], norm=norm
+            NUM_TAPS, [0, 0.24, 0.26, 0.5], [0, 0, As, As], norm=norm
         )
         w, h = sig.freqz(taps, fs=1)
-        plt.plot(w, 20 * np.log10(abs(h)), label=f"Norm: L{norm}")
+        norm_str = str(norm) if norm != "inf" else "\u221E"
+        plt.plot(w, 20 * np.log10(abs(h)), label=f"Norm: L{norm_str}")
 
     plt.tight_layout()
     plt.grid(True)
